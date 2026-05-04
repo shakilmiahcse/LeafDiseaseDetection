@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>পাতার রোগ শনাক্তকরণ</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="tool-panel">
+        <div class="upload-side">
+          <p class="eyebrow">Leaf Disease Detection</p>
+          <h1>টমেটো পাতার রোগ শনাক্তকরণ</h1>
+
+          <form method="post" enctype="multipart/form-data" class="upload-form">
+            <label class="upload-box" for="image">
+              <span class="upload-icon">+</span>
+              <span class="upload-title">পাতার ছবি আপলোড করুন</span>
+              <span class="upload-meta">JPG, PNG অথবা WEBP</span>
+            </label>
+            <input id="image" name="image" type="file" accept="image/*" required>
+            <button type="submit">রোগ শনাক্ত করুন</button>
+          </form>
+
+          {% if error %}
+            <p class="error">{{ error }}</p>
+          {% endif %}
+        </div>
+
+        <div class="result-side">
+          {% if image_url %}
+            <img class="preview-image" src="{{ image_url }}" alt="আপলোড করা পাতার ছবি">
+          {% else %}
+            <div class="preview-empty">
+              <span></span>
+            </div>
+          {% endif %}
+
+          {% if result %}
+            <div class="result-block">
+              <p class="result-label">রোগের নাম</p>
+              <h2>{{ result.name_bn }}</h2>
+              <p class="result-label">সমাধান</p>
+              <p class="solution">{{ result.solution_bn }}</p>
+              <p class="confidence">আত্মবিশ্বাস: {{ "%.2f"|format(result.confidence * 100) }}%</p>
+            </div>
+          {% else %}
+            <div class="result-block muted">
+              <p class="result-label">ফলাফল</p>
+              <h2>ছবি আপলোডের অপেক্ষায়</h2>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -2,6 +2,9 @@ import argparse
 import json
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -14,41 +17,52 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=10, help="Training epochs.")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size.")
     parser.add_argument("--img-size", type=int, default=224, help="Square input image size.")
+    parser.add_argument(
+        "--base-weights",
+        choices=["imagenet", "none"],
+        default="imagenet",
+        help="Pretrained weights for MobileNetV2. Use 'none' to train the classifier head without downloading weights.",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     return parser.parse_args()
 
 
-def load_datasets(data_dir, image_size, batch_size, seed):
+def create_data_generators(data_dir, image_size, batch_size, seed):
     train_dir = Path(data_dir) / "train"
     valid_dir = Path(data_dir) / "valid"
 
     if not train_dir.exists() or not valid_dir.exists():
         raise FileNotFoundError("Expected dataset/train and dataset/valid folders.")
 
-    train_ds = tf.keras.utils.image_dataset_from_directory(
+    preprocessing_fn = tf.keras.applications.mobilenet_v2.preprocess_input
+    train_datagen = tf.keras.preprocessing.image.ImageDataGenerator(
+        preprocessing_function=preprocessing_fn,
+    )
+    valid_datagen = tf.keras.preprocessing.image.ImageDataGenerator(
+        preprocessing_function=preprocessing_fn,
+    )
+
+    train_generator = train_datagen.flow_from_directory(
         train_dir,
-        image_size=(image_size, image_size),
+        target_size=(image_size, image_size),
         batch_size=batch_size,
-        label_mode="categorical",
+        class_mode="categorical",
         shuffle=True,
         seed=seed,
     )
-    valid_ds = tf.keras.utils.image_dataset_from_directory(
+    valid_generator = valid_datagen.flow_from_directory(
         valid_dir,
-        image_size=(image_size, image_size),
+        target_size=(image_size, image_size),
         batch_size=batch_size,
-        label_mode="categorical",
+        class_mode="categorical",
         shuffle=False,
     )
 
-    class_names = train_ds.class_names
-    autotune = tf.data.AUTOTUNE
-    train_ds = train_ds.prefetch(autotune)
-    valid_ds = valid_ds.prefetch(autotune)
-    return train_ds, valid_ds, class_names
+    class_names = list(train_generator.class_indices.keys())
+    return train_generator, valid_generator, class_names
 
 
-def build_model(num_classes, image_size):
+def build_model(num_classes, image_size, base_weights="imagenet"):
     data_augmentation = tf.keras.Sequential(
         [
             tf.keras.layers.RandomFlip("horizontal"),
@@ -60,17 +74,22 @@ def build_model(num_classes, image_size):
 
     inputs = tf.keras.Input(shape=(image_size, image_size, 3))
     x = data_augmentation(inputs)
-    x = tf.keras.layers.Rescaling(1.0 / 255)(x)
 
-    for filters in (32, 64, 128):
-        x = tf.keras.layers.Conv2D(filters, 3, padding="same", activation="relu")(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.MaxPooling2D()(x)
+    weights = None if base_weights == "none" else base_weights
+    base_model = tf.keras.applications.MobileNetV2(
+        input_shape=(image_size, image_size, 3),
+        include_top=False,
+        weights=weights,
+    )
+    base_model.trainable = False
 
-    x = tf.keras.layers.Conv2D(256, 3, padding="same", activation="relu")(x)
-    x = tf.keras.layers.BatchNormalization()(x)
+    x = base_model(x, training=False)
     x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dense(256, activation="relu")(x)
     x = tf.keras.layers.Dropout(0.35)(x)
+    x = tf.keras.layers.Dense(128, activation="relu")(x)
+    x = tf.keras.layers.Dropout(0.25)(x)
     outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
 
     model = tf.keras.Model(inputs, outputs)
@@ -114,7 +133,7 @@ def main():
     model_path.parent.mkdir(parents=True, exist_ok=True)
     output_dir = Path("outputs")
 
-    train_ds, valid_ds, class_names = load_datasets(
+    train_generator, valid_generator, class_names = create_data_generators(
         args.data_dir,
         args.img_size,
         args.batch_size,
@@ -122,7 +141,7 @@ def main():
     )
 
     print(f"Classes: {class_names}")
-    model = build_model(len(class_names), args.img_size)
+    model = build_model(len(class_names), args.img_size, args.base_weights)
     model.summary()
 
     callbacks = [
@@ -147,18 +166,22 @@ def main():
     ]
 
     history = model.fit(
-        train_ds,
-        validation_data=valid_ds,
+        train_generator,
+        validation_data=valid_generator,
         epochs=args.epochs,
         callbacks=callbacks,
     )
 
-    loss, accuracy = model.evaluate(valid_ds, verbose=0)
+    loss, accuracy = model.evaluate(valid_generator, verbose=0)
     model.save(model_path)
 
     metadata = {
         "class_names": class_names,
         "image_size": args.img_size,
+        "base_model": "MobileNetV2",
+        "base_weights": args.base_weights,
+        "base_trainable": False,
+        "preprocessing": "mobilenet_v2.preprocess_input",
         "validation_loss": float(loss),
         "validation_accuracy": float(accuracy),
     }
