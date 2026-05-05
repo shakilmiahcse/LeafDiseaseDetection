@@ -7,6 +7,9 @@
   --green: #2e7d4f;
   --green-dark: #195c38;
   --blue: #315f8f;
+  --warning: #9a5b00;
+  --warning-bg: #fff7e6;
+  --warning-line: #f1c27d;
   --danger: #b42318;
 }
 
@@ -204,6 +207,15 @@ button:hover {
   padding-top: 4px;
 }
 
+.result-block.status-not_leaf,
+.result-block.status-non_tomato_leaf_like,
+.result-block.status-uncertain {
+  padding: 18px;
+  border: 1px solid var(--warning-line);
+  border-radius: 8px;
+  background: var(--warning-bg);
+}
+
 .result-label {
   margin-bottom: 6px;
   font-weight: 700;
@@ -216,11 +228,27 @@ button:hover {
   line-height: 1.2;
 }
 
+.result-block.status-not_leaf h2,
+.result-block.status-non_tomato_leaf_like h2,
+.result-block.status-uncertain h2 {
+  color: var(--warning);
+}
+
 .solution {
   margin-bottom: 16px;
   color: #26362d;
   font-size: 1.05rem;
   line-height: 1.8;
+}
+
+.scope-note {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--warning-line);
+  background: #fffaf0;
+  color: #5b4320;
+  font-size: 0.95rem;
+  line-height: 1.65;
 }
 
 .muted h2 {

@@ -18,6 +18,28 @@ dataset/
 
 Images are loaded with Keras directory generators, resized to `224x224`, and normalized with MobileNetV2 preprocessing.
 
+Current included dataset has only two classes: `Tomato___Healthy` and `Tomato___Leaf_Mold`. A softmax classifier trained with only two classes must choose one of those two labels for every image, including other leaves or tomato fruit. The web app now blocks obvious unsupported/uncertain images, but a reliable user-facing system should be retrained with:
+
+- all tomato leaf disease classes you want to report,
+- a `Not_Tomato_Leaf` or `Unknown` negative class containing tomato fruit, other leaves, soil, flowers, hands, and random objects,
+- validation images captured from the same kind of phone/camera users will use.
+
+Common tomato classes you can add as folders are:
+
+```text
+Tomato___Bacterial_spot
+Tomato___Early_blight
+Tomato___Late_blight
+Tomato___Leaf_Mold
+Tomato___Septoria_leaf_spot
+Tomato___Spider_mites Two-spotted_spider_mite
+Tomato___Target_Spot
+Tomato___Tomato_Yellow_Leaf_Curl_Virus
+Tomato___Tomato_mosaic_virus
+Tomato___Healthy
+Not_Tomato_Leaf
+```
+
 ## Setup
 
 ```powershell

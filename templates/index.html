@@ -38,12 +38,23 @@
           {% endif %}
 
           {% if result %}
-            <div class="result-block">
-              <p class="result-label">রোগের নাম</p>
+            <div class="result-block status-{{ result.status }}">
+              <p class="result-label">
+                {% if result.status == "ok" %}
+                  সম্ভাব্য ফলাফল
+                {% else %}
+                  সতর্কতা
+                {% endif %}
+              </p>
               <h2>{{ result.name_bn }}</h2>
               <p class="result-label">সমাধান</p>
               <p class="solution">{{ result.solution_bn }}</p>
-              <p class="confidence">আত্মবিশ্বাস: {{ "%.2f"|format(result.confidence * 100) }}%</p>
+              {% if result.confidence is not none %}
+                <p class="confidence">আত্মবিশ্বাস: {{ "%.2f"|format(result.confidence * 100) }}%</p>
+              {% endif %}
+              {% if result.status == "ok" %}
+                <p class="scope-note">এই ফলাফল শুধু টমেটো পাতার ছবির জন্য প্রযোজ্য। অন্য পাতা বা টমেটো ফলের ছবিতে এটি রোগ নির্ণয় হিসেবে ব্যবহার করবেন না।</p>
+              {% endif %}
             </div>
           {% else %}
             <div class="result-block muted">
