@@ -9,9 +9,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
+try:
+    from src.disease_advice import summarize_supported_classes
+except ModuleNotFoundError:
+    from disease_advice import summarize_supported_classes
+
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a tomato leaf disease classifier.")
+    parser = argparse.ArgumentParser(description="Train a multi-crop leaf disease classifier.")
     parser.add_argument("--data-dir", default="dataset", help="Dataset root with train/ and valid/ folders.")
     parser.add_argument("--model-out", default="models/leaf_disease_model.keras", help="Path to save the model.")
     parser.add_argument("--epochs", type=int, default=10, help="Training epochs.")
@@ -24,7 +32,48 @@ def parse_args():
         help="Pretrained weights for MobileNetV2. Use 'none' to train the classifier head without downloading weights.",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
+    parser.add_argument("--min-confidence", type=float, default=0.7, help="Prediction confidence gate saved in metadata.")
+    parser.add_argument(
+        "--min-confidence-margin",
+        type=float,
+        default=0.1,
+        help="Minimum gap between top two predictions saved in metadata.",
+    )
     return parser.parse_args()
+
+
+def list_image_files(root_dir, class_names):
+    image_paths = []
+    labels = []
+
+    for class_index, class_name in enumerate(class_names):
+        class_dir = root_dir / class_name
+        for image_path in sorted(class_dir.iterdir()):
+            if image_path.is_file() and image_path.suffix.lower() in IMAGE_EXTENSIONS:
+                image_paths.append(str(image_path))
+                labels.append(class_index)
+
+    return image_paths, labels
+
+
+def build_image_dataset(image_paths, labels, num_classes, image_size, batch_size, shuffle=False, seed=42):
+    preprocessing_fn = tf.keras.applications.mobilenet_v2.preprocess_input
+    dataset = tf.data.Dataset.from_tensor_slices((image_paths, labels))
+
+    if shuffle:
+        dataset = dataset.shuffle(buffer_size=len(image_paths), seed=seed, reshuffle_each_iteration=True)
+
+    def load_and_preprocess(image_path, label):
+        image = tf.io.read_file(image_path)
+        image = tf.io.decode_image(image, channels=3, expand_animations=False)
+        image.set_shape([None, None, 3])
+        image = tf.image.resize(image, [image_size, image_size])
+        image = preprocessing_fn(tf.cast(image, tf.float32))
+        label = tf.one_hot(label, num_classes)
+        return image, label
+
+    autotune = tf.data.AUTOTUNE
+    return dataset.map(load_and_preprocess, num_parallel_calls=autotune).batch(batch_size).prefetch(autotune)
 
 
 def create_data_generators(data_dir, image_size, batch_size, seed):
@@ -34,32 +83,38 @@ def create_data_generators(data_dir, image_size, batch_size, seed):
     if not train_dir.exists() or not valid_dir.exists():
         raise FileNotFoundError("Expected dataset/train and dataset/valid folders.")
 
-    preprocessing_fn = tf.keras.applications.mobilenet_v2.preprocess_input
-    train_datagen = tf.keras.preprocessing.image.ImageDataGenerator(
-        preprocessing_function=preprocessing_fn,
-    )
-    valid_datagen = tf.keras.preprocessing.image.ImageDataGenerator(
-        preprocessing_function=preprocessing_fn,
-    )
+    class_names = sorted(path.name for path in train_dir.iterdir() if path.is_dir())
+    if not class_names:
+        raise FileNotFoundError(f"No class folders found in {train_dir}")
 
-    train_generator = train_datagen.flow_from_directory(
-        train_dir,
-        target_size=(image_size, image_size),
-        batch_size=batch_size,
-        class_mode="categorical",
+    train_paths, train_labels = list_image_files(train_dir, class_names)
+    valid_paths, valid_labels = list_image_files(valid_dir, class_names)
+
+    if not train_paths:
+        raise FileNotFoundError(f"No training images found in {train_dir}")
+    if not valid_paths:
+        raise FileNotFoundError(f"No validation images found in {valid_dir}")
+
+    train_dataset = build_image_dataset(
+        train_paths,
+        train_labels,
+        len(class_names),
+        image_size,
+        batch_size,
         shuffle=True,
         seed=seed,
     )
-    valid_generator = valid_datagen.flow_from_directory(
-        valid_dir,
-        target_size=(image_size, image_size),
-        batch_size=batch_size,
-        class_mode="categorical",
+    valid_dataset = build_image_dataset(
+        valid_paths,
+        valid_labels,
+        len(class_names),
+        image_size,
+        batch_size,
         shuffle=False,
+        seed=seed,
     )
 
-    class_names = list(train_generator.class_indices.keys())
-    return train_generator, valid_generator, class_names
+    return train_dataset, valid_dataset, class_names
 
 
 def build_model(num_classes, image_size, base_weights="imagenet"):
@@ -141,6 +196,9 @@ def main():
     )
 
     print(f"Classes: {class_names}")
+    supported_summary = summarize_supported_classes({"class_names": class_names})
+    print(f"Supported crops: {supported_summary['crops_text_bn']}")
+
     model = build_model(len(class_names), args.img_size, args.base_weights)
     model.summary()
 
@@ -170,18 +228,25 @@ def main():
         validation_data=valid_generator,
         epochs=args.epochs,
         callbacks=callbacks,
+        verbose=2,
     )
 
     loss, accuracy = model.evaluate(valid_generator, verbose=0)
     model.save(model_path)
 
     metadata = {
+        "task": "multi_crop_leaf_disease",
         "class_names": class_names,
+        "class_count": len(class_names),
+        "supported_crops": supported_summary["crops"],
+        "supported_crop_count": supported_summary["crop_count"],
         "image_size": args.img_size,
         "base_model": "MobileNetV2",
         "base_weights": args.base_weights,
         "base_trainable": False,
         "preprocessing": "mobilenet_v2.preprocess_input",
+        "min_confidence": args.min_confidence,
+        "min_confidence_margin": args.min_confidence_margin,
         "validation_loss": float(loss),
         "validation_accuracy": float(accuracy),
     }

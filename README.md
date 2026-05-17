@@ -1,43 +1,89 @@
-# Leaf Disease Detection
+# Multi-Crop Leaf Disease Detection
 
-TensorFlow image classification project for tomato leaf disease detection. The training script uses MobileNetV2 as a frozen base model and adds custom dense layers for classification.
+TensorFlow + Flask image classification project for crop leaf disease detection. The code is now multi-crop-ready: it reads class folders such as `Potato___Late_blight`, `Corn_(maize)___Common_rust_`, or `Rice___Brown_spot`, predicts the class, and shows a Bangla disease name with general management advice.
 
-## Dataset
+Important: the model can only recognize classes it was trained on. The dataset currently included in this workspace still has only:
 
-Expected folder layout:
+```text
+Tomato___Healthy
+Tomato___Leaf_Mold
+```
+
+To detect many crops, add a full multi-crop leaf dataset and retrain the model.
+
+## Quick Start
+
+1. Create and activate a virtual environment:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+2. Install pinned dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+3. Run the web app:
+
+```powershell
+python app.py
+```
+
+4. Open your browser to:
+
+```text
+http://127.0.0.1:5000
+```
+
+If the app cannot load the default model file, set `LEAF_MODEL_PATH` to a valid saved model path before starting the app.
+
+## Dataset Layout
+
+Use one folder per class under `train/` and `valid/`:
 
 ```text
 dataset/
   train/
-    Tomato___Healthy/
+    Apple___Apple_scab/
+    Corn_(maize)___Common_rust_/
+    Potato___Late_blight/
     Tomato___Leaf_Mold/
+    Not_Leaf/
   valid/
-    Tomato___Healthy/
+    Apple___Apple_scab/
+    Corn_(maize)___Common_rust_/
+    Potato___Late_blight/
     Tomato___Leaf_Mold/
+    Not_Leaf/
 ```
 
-Images are loaded with Keras directory generators, resized to `224x224`, and normalized with MobileNetV2 preprocessing.
-
-Current included dataset has only two classes: `Tomato___Healthy` and `Tomato___Leaf_Mold`. A softmax classifier trained with only two classes must choose one of those two labels for every image, including other leaves or tomato fruit. The web app now blocks obvious unsupported/uncertain images, but a reliable user-facing system should be retrained with:
-
-- all tomato leaf disease classes you want to report,
-- a `Not_Tomato_Leaf` or `Unknown` negative class containing tomato fruit, other leaves, soil, flowers, hands, and random objects,
-- validation images captured from the same kind of phone/camera users will use.
-
-Common tomato classes you can add as folders are:
+Recommended negative classes:
 
 ```text
-Tomato___Bacterial_spot
-Tomato___Early_blight
-Tomato___Late_blight
-Tomato___Leaf_Mold
-Tomato___Septoria_leaf_spot
-Tomato___Spider_mites Two-spotted_spider_mite
-Tomato___Target_Spot
-Tomato___Tomato_Yellow_Leaf_Curl_Virus
-Tomato___Tomato_mosaic_virus
-Tomato___Healthy
-Not_Tomato_Leaf
+Not_Leaf
+Not_Crop_Leaf
+Unknown
+Background
+```
+
+Put non-leaf images there, for example fruits, flowers, soil, hands, tools, and random objects. This helps the model avoid confident wrong disease predictions.
+
+## Prepare Dataset
+
+If you have a PlantVillage-style source folder where each class is a subfolder, create a train/valid split:
+
+```powershell
+python src\prepare_dataset.py --source _plantvillage_src\raw\color --output dataset --valid-ratio 0.2 --dry-run
+python src\prepare_dataset.py --source _plantvillage_src\raw\color --output dataset --valid-ratio 0.2 --clear-output
+```
+
+You can include specific classes only:
+
+```powershell
+python src\prepare_dataset.py --source path\to\all_classes --classes Potato___Late_blight Potato___Healthy --output dataset
 ```
 
 ## Setup
@@ -48,16 +94,29 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
+## GitHub-ready repo
+
+The repo is configured so local artifacts are ignored. The following are excluded by `.gitignore`:
+
+- virtual environments (`.venv/`, `venv/`, `env/`)
+- Python caches (`__pycache__/`, `*.pyc`)
+- model binary artifacts (`models/*.keras`, `models/*.h5`)
+- generated uploads (`static/uploads/`)
+- large dataset folders (`dataset/`, `_plantvillage_full/`, `_plantvillage_src/`)
+- output and log files (`outputs/`, `logs/`)
+
+Keep only source code and metadata (`models/class_names.json`) in Git. Large model or dataset files should be stored outside the repository or using Git LFS if needed.
+
 ## Train
 
 ```powershell
-python src\train.py --epochs 10
+python src\train.py --epochs 20 --batch-size 32
 ```
 
-MobileNetV2 uses ImageNet weights by default. If you are offline or do not want pretrained weights, run:
+MobileNetV2 uses ImageNet weights by default. If you are offline, run:
 
 ```powershell
-python src\train.py --epochs 10 --base-weights none
+python src\train.py --epochs 20 --base-weights none
 ```
 
 The script saves:
@@ -67,6 +126,8 @@ models/leaf_disease_model.keras
 models/class_names.json
 outputs/training_history.png
 ```
+
+The metadata also stores class count, supported crops, image size, and prediction confidence thresholds.
 
 ## Predict
 
@@ -80,4 +141,21 @@ python src\predict.py path\to\leaf.jpg
 python app.py
 ```
 
-Open `http://127.0.0.1:5000`, upload a leaf image, and the app shows the Bangla disease name and solution.
+Open `http://127.0.0.1:5000`, upload a crop leaf image, and the app shows the predicted disease with Bangla advice.
+
+If you want to use a different model file:
+
+```powershell
+$env:LEAF_MODEL_PATH="models\leaf_disease_model.keras"
+python app.py
+```
+
+## Advice Mapping
+
+Bangla crop/disease names and generic advice live in:
+
+```text
+src/disease_advice.py
+```
+
+When you add a new class folder, the app will still generate a readable result from the class name. For better Bangla names, add the crop or disease term to `CROP_NAMES_BN` or `DISEASE_NAMES_BN`.

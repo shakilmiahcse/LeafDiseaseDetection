@@ -9,9 +9,17 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 import cv2
 import numpy as np
-import tensorflow as tf
 
-tf.get_logger().setLevel("ERROR")
+try:
+    from src.disease_advice import (
+        NEGATIVE_CLASSES as NEGATIVE_CLASS_LABELS,
+        get_bangla_result as build_bangla_advice,
+    )
+except ModuleNotFoundError:
+    from disease_advice import (
+        NEGATIVE_CLASSES as NEGATIVE_CLASS_LABELS,
+        get_bangla_result as build_bangla_advice,
+    )
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -19,82 +27,27 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
 
-MIN_CONFIDENCE = 0.9
-MIN_CONFIDENCE_MARGIN = 0.2
-MIN_GREEN_RATIO = 0.12
-NEGATIVE_CLASSES = {"Not_Tomato_Leaf", "Unknown"}
-
-DISEASE_SOLUTIONS = {
-    "Tomato___Healthy": {
-        "name_bn": "সুস্থ টমেটো পাতা",
-        "solution_bn": "কোনো রোগ শনাক্ত হয়নি। নিয়মিত পর্যবেক্ষণ করুন, পর্যাপ্ত আলো-বাতাস রাখুন এবং সঠিকভাবে পানি ও সার প্রয়োগ করুন।",
-    },
-    "Tomato___Bacterial_spot": {
-        "name_bn": "টমেটোর ব্যাকটেরিয়াল স্পট",
-        "solution_bn": "আক্রান্ত পাতা সরিয়ে ফেলুন, পাতায় পানি জমতে দেবেন না, পরিষ্কার বীজ/চারা ব্যবহার করুন এবং প্রয়োজন হলে কৃষি বিশেষজ্ঞের পরামর্শে কপার-ভিত্তিক ব্যাকটেরিসাইড ব্যবহার করুন।",
-    },
-    "Tomato___Early_blight": {
-        "name_bn": "টমেটোর আর্লি ব্লাইট",
-        "solution_bn": "আক্রান্ত পাতা ছেঁটে ফেলুন, গাছের গোড়ায় মালচ দিন, ফসল পর্যায়ক্রম বজায় রাখুন এবং প্রয়োজন হলে অনুমোদিত ছত্রাকনাশক ব্যবহার করুন।",
-    },
-    "Tomato___Late_blight": {
-        "name_bn": "টমেটোর লেট ব্লাইট",
-        "solution_bn": "আক্রান্ত অংশ দ্রুত সরিয়ে ফেলুন, জমিতে বাতাস চলাচল বাড়ান, পাতায় পানি দেওয়া এড়িয়ে চলুন এবং দ্রুত কৃষি বিশেষজ্ঞের পরামর্শ নিন।",
-    },
-    "Tomato___Leaf_Mold": {
-        "name_bn": "টমেটোর পাতার ছাঁচ রোগ",
-        "solution_bn": "আক্রান্ত পাতা সরিয়ে ফেলুন, গাছের চারপাশে বাতাস চলাচল বাড়ান, পাতায় পানি জমতে দেবেন না এবং প্রয়োজন হলে কৃষি বিশেষজ্ঞের পরামর্শে উপযুক্ত ছত্রাকনাশক ব্যবহার করুন।",
-    },
-    "Tomato___Septoria_leaf_spot": {
-        "name_bn": "টমেটোর সেপটোরিয়া লিফ স্পট",
-        "solution_bn": "আক্রান্ত পাতা অপসারণ করুন, গাছের নিচের অংশ পরিষ্কার রাখুন, ওপর থেকে পানি দেওয়া এড়িয়ে চলুন এবং প্রয়োজন হলে অনুমোদিত ছত্রাকনাশক প্রয়োগ করুন।",
-    },
-    "Tomato___Spider_mites Two-spotted_spider_mite": {
-        "name_bn": "টমেটোর স্পাইডার মাইট আক্রমণ",
-        "solution_bn": "পাতার নিচের অংশ পরীক্ষা করুন, আক্রান্ত পাতা সরান, গাছে পর্যাপ্ত আর্দ্রতা বজায় রাখুন এবং প্রয়োজন হলে কৃষি বিশেষজ্ঞের পরামর্শে মাইটনাশক ব্যবহার করুন।",
-    },
-    "Tomato___Target_Spot": {
-        "name_bn": "টমেটোর টার্গেট স্পট",
-        "solution_bn": "আক্রান্ত পাতা সরিয়ে ফেলুন, গাছের ঘনত্ব কমান, জমি পরিষ্কার রাখুন এবং প্রয়োজন হলে অনুমোদিত ছত্রাকনাশক ব্যবহার করুন।",
-    },
-    "Tomato___Tomato_Yellow_Leaf_Curl_Virus": {
-        "name_bn": "টমেটোর ইয়েলো লিফ কার্ল ভাইরাস",
-        "solution_bn": "সাদা মাছি নিয়ন্ত্রণ করুন, আক্রান্ত গাছ আলাদা বা সরিয়ে ফেলুন, আগাছা পরিষ্কার রাখুন এবং রোগমুক্ত চারা ব্যবহার করুন।",
-    },
-    "Tomato___Tomato_mosaic_virus": {
-        "name_bn": "টমেটোর মোজাইক ভাইরাস",
-        "solution_bn": "আক্রান্ত গাছের অংশ সরান, হাত ও যন্ত্রপাতি পরিষ্কার রাখুন, আক্রান্ত গাছ স্পর্শের পর সুস্থ গাছ স্পর্শ করবেন না এবং রোগমুক্ত বীজ/চারা ব্যবহার করুন।",
-    },
-    "Not_Tomato_Leaf": {
-        "name_bn": "টমেটো পাতা নয়",
-        "solution_bn": "ছবিটি টমেটো পাতার রোগ শনাক্তের জন্য উপযুক্ত নয়। পরিষ্কার টমেটো পাতার ছবি আপলোড করুন।",
-    },
-    "Unknown": {
-        "name_bn": "অজানা বা অসমর্থিত ছবি",
-        "solution_bn": "ছবিটি মডেলের শেখা শ্রেণিগুলোর মধ্যে পড়ে না। ভুল ফলাফল এড়াতে রোগ নির্ণয় দেখানো হয়নি।",
-    },
-}
+DEFAULT_MIN_CONFIDENCE = 0.7
+DEFAULT_MIN_CONFIDENCE_MARGIN = 0.1
+MIN_GREEN_RATIO = 0.06
+MIN_VEGETATION_RATIO = 0.08
 
 REJECTION_RESULTS = {
     "not_leaf": {
-        "name_bn": "সমর্থিত ছবি নয়",
-        "solution_bn": "এই সিস্টেম শুধু পরিষ্কার টমেটো পাতার ছবি বিশ্লেষণ করে। টমেটো ফল, ফুল, মানুষ, মাটি বা অন্য বস্তুর ছবি দিলে রোগের ফলাফল দেখানো নিরাপদ নয়।",
-    },
-    "non_tomato_leaf_like": {
-        "name_bn": "টমেটো পাতা নিশ্চিত নয়",
-        "solution_bn": "ছবির পাতার গঠন বর্তমান টমেটো পাতা ডেটাসেটের সাথে যথেষ্ট মেলেনি। ভুল নির্দেশনা এড়াতে রোগের নাম দেখানো হয়নি। পরিষ্কার টমেটো পাতার ছবি দিন বা মডেলটিকে non-tomato leaf ডেটা দিয়ে পুনরায় ট্রেইন করুন।",
+        "name_bn": "ফসলের পাতার ছবি নয়",
+        "solution_bn": "পরিষ্কার ফসলের পাতার ছবি দিন। ফল, ফুল, মাটি, মানুষ বা অন্য বস্তুর ছবিতে রোগের ফলাফল দেখানো নিরাপদ নয়।",
     },
     "uncertain": {
         "name_bn": "নিশ্চিতভাবে শনাক্ত করা যায়নি",
-        "solution_bn": "মডেলের আত্মবিশ্বাস যথেষ্ট নয়, তাই রোগের নাম বলা নিরাপদ নয়। ভালো আলোতে একটি পরিষ্কার টমেটো পাতার ছবি দিন অথবা কৃষি বিশেষজ্ঞের পরামর্শ নিন।",
+        "solution_bn": "মডেলের আত্মবিশ্বাস যথেষ্ট নয়, তাই রোগের নাম বলা নিরাপদ নয়। ভালো আলোতে পরিষ্কার ফসলের পাতার ছবি দিন অথবা কৃষি বিশেষজ্ঞের পরামর্শ নিন।",
     },
 }
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Predict tomato leaf class for one image.")
+    parser = argparse.ArgumentParser(description="Predict crop leaf disease class for one image.")
     parser.add_argument("image", help="Path to the image file.")
-    parser.add_argument("--model", default="models/leaf_model.h5", help="Trained Keras model path.")
+    parser.add_argument("--model", default="models/leaf_disease_model.keras", help="Trained Keras model path.")
     parser.add_argument("--metadata", default="models/class_names.json", help="Class metadata JSON path.")
     return parser.parse_args()
 
@@ -114,6 +67,7 @@ def load_image(image_path, image_size):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.resize(image, (image_size, image_size), interpolation=cv2.INTER_AREA)
     image = image.astype(np.float32)
+    import tensorflow as tf
     image = tf.keras.applications.mobilenet_v2.preprocess_input(image)
     return np.expand_dims(image, axis=0)
 
@@ -202,7 +156,7 @@ def validate_input_image(image_path):
     if stats["green_ratio"] < MIN_GREEN_RATIO:
         return False, "not_leaf", stats
 
-    if stats["vegetation_ratio"] < 0.08:
+    if stats["vegetation_ratio"] < MIN_VEGETATION_RATIO:
         return False, "not_leaf", stats
 
     simple_green_graphic = (
@@ -214,27 +168,11 @@ def validate_input_image(image_path):
     if simple_green_graphic:
         return False, "not_leaf", stats
 
-    broad_simple_leaf = (
-        stats["green_ratio"] > 0.28
-        and stats["largest_ratio"] > 0.25
-        and stats["solidity"] > 0.9
-        and stats["extent"] > 0.55
-        and stats["red_ratio"] < 0.1
-    )
-    if broad_simple_leaf:
-        return False, "non_tomato_leaf_like", stats
-
     return True, None, stats
 
 
 def get_bangla_result(class_name):
-    return DISEASE_SOLUTIONS.get(
-        class_name,
-        {
-            "name_bn": class_name,
-            "solution_bn": "এই শ্রেণির জন্য এখনো নির্দিষ্ট সমাধান যোগ করা হয়নি। রোগ নিশ্চিত করতে কৃষি বিশেষজ্ঞের পরামর্শ নিন।",
-        },
-    )
+    return build_bangla_advice(class_name)
 
 
 def build_rejection_result(reason, visual_stats=None, predicted_class=None, confidence=None, margin=None):
@@ -244,15 +182,25 @@ def build_rejection_result(reason, visual_stats=None, predicted_class=None, conf
         "class_name": predicted_class,
         "confidence": confidence,
         "margin": margin,
+        "crop_bn": None,
+        "disease_bn": None,
         "name_bn": result["name_bn"],
         "solution_bn": result["solution_bn"],
         "visual_stats": visual_stats or {},
     }
 
 
+def get_prediction_thresholds(metadata):
+    return (
+        float(metadata.get("min_confidence", DEFAULT_MIN_CONFIDENCE)),
+        float(metadata.get("min_confidence_margin", DEFAULT_MIN_CONFIDENCE_MARGIN)),
+    )
+
+
 def predict_leaf(image_path, model, metadata):
     class_names = metadata["class_names"]
     image_size = metadata["image_size"]
+    min_confidence, min_confidence_margin = get_prediction_thresholds(metadata)
 
     is_valid, rejection_reason, visual_stats = validate_input_image(image_path)
     if not is_valid:
@@ -267,7 +215,7 @@ def predict_leaf(image_path, model, metadata):
     confidence = float(predictions[class_index])
     margin = confidence if len(sorted_predictions) == 1 else float(sorted_predictions[-1] - sorted_predictions[-2])
 
-    if predicted_class in NEGATIVE_CLASSES:
+    if predicted_class in NEGATIVE_CLASS_LABELS:
         return build_rejection_result(
             "not_leaf",
             visual_stats=visual_stats,
@@ -276,7 +224,7 @@ def predict_leaf(image_path, model, metadata):
             margin=margin,
         )
 
-    if confidence < MIN_CONFIDENCE or margin < MIN_CONFIDENCE_MARGIN:
+    if confidence < min_confidence or margin < min_confidence_margin:
         return build_rejection_result(
             "uncertain",
             visual_stats=visual_stats,
@@ -291,6 +239,8 @@ def predict_leaf(image_path, model, metadata):
         "class_name": predicted_class,
         "confidence": confidence,
         "margin": margin,
+        "crop_bn": result.get("crop_bn"),
+        "disease_bn": result.get("disease_bn"),
         "name_bn": result["name_bn"],
         "solution_bn": result["solution_bn"],
         "visual_stats": visual_stats,
@@ -300,12 +250,40 @@ def predict_leaf(image_path, model, metadata):
 def main():
     args = parse_args()
     metadata = load_metadata(args.metadata)
+    # Import TensorFlow only when running the CLI, so importing this module
+    # doesn't require TensorFlow to be installed in all environments.
+    import tensorflow as tf
+    tf.get_logger().setLevel("ERROR")
     model = tf.keras.models.load_model(args.model, compile=False)
     result = predict_leaf(args.image, model, metadata)
     print(f"রোগের নাম: {result['name_bn']}")
     print(f"সমাধান: {result['solution_bn']}")
     if result["confidence"] is not None:
         print(f"আত্মবিশ্বাস: {result['confidence'] * 100:.2f}%")
+
+
+def load_model_from_path(path):
+    import tensorflow as tf
+    tf.get_logger().setLevel("ERROR")
+
+    p = Path(path)
+    try:
+        return tf.keras.models.load_model(str(p), compile=False)
+    except Exception as exc:
+        # Attempt sensible fallbacks if the primary file isn't a valid Keras archive.
+        candidates = [
+            p.with_suffix(".h5"),
+            p.parent / "leaf_model.h5",
+            p.parent / "leaf_disease_model_retrained.keras",
+        ]
+        for cand in candidates:
+            if cand.exists():
+                try:
+                    return tf.keras.models.load_model(str(cand), compile=False)
+                except Exception:
+                    continue
+        # Nothing worked — re-raise the original exception for visibility.
+        raise
 
 
 if __name__ == "__main__":

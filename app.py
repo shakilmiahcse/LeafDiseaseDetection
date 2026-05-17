@@ -1,14 +1,15 @@
+import os
 from pathlib import Path
 from uuid import uuid4
 
 from flask import Flask, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
-from src.predict import load_metadata, predict_leaf, tf
+from src.disease_advice import summarize_supported_classes
+from src.predict import load_metadata, predict_leaf, load_model_from_path
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "models" / "leaf_model.h5"
 METADATA_PATH = BASE_DIR / "models" / "class_names.json"
 UPLOAD_FOLDER = BASE_DIR / "static" / "uploads"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
@@ -19,7 +20,27 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 metadata = load_metadata(METADATA_PATH)
+model_summary = summarize_supported_classes(metadata)
 model = None
+
+
+def resolve_model_path():
+    configured_path = os.environ.get("LEAF_MODEL_PATH")
+    if configured_path:
+        path = Path(configured_path)
+        return path if path.is_absolute() else BASE_DIR / path
+
+    for candidate in (
+        BASE_DIR / "models" / "leaf_disease_model.keras",
+        BASE_DIR / "models" / "leaf_model.h5",
+    ):
+        if candidate.exists():
+            return candidate
+
+    return BASE_DIR / "models" / "leaf_disease_model.keras"
+
+
+MODEL_PATH = resolve_model_path()
 
 
 def allowed_file(filename):
@@ -29,7 +50,7 @@ def allowed_file(filename):
 def get_model():
     global model
     if model is None:
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model = load_model_from_path(MODEL_PATH)
     return model
 
 
@@ -54,7 +75,13 @@ def index():
             result = predict_leaf(saved_path, get_model(), metadata)
             image_url = url_for("static", filename=f"uploads/{saved_name}")
 
-    return render_template("index.html", result=result, image_url=image_url, error=error)
+    return render_template(
+        "index.html",
+        result=result,
+        image_url=image_url,
+        error=error,
+        model_summary=model_summary,
+    )
 
 
 if __name__ == "__main__":

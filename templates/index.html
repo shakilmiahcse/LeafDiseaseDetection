@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>পাতার রোগ শনাক্তকরণ</title>
+    <title>ফসলের পাতার রোগ শনাক্তকরণ</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
@@ -11,17 +11,24 @@
       <section class="tool-panel">
         <div class="upload-side">
           <p class="eyebrow">Leaf Disease Detection</p>
-          <h1>টমেটো পাতার রোগ শনাক্তকরণ</h1>
+          <h1>ফসলের পাতার রোগ শনাক্তকরণ</h1>
 
           <form method="post" enctype="multipart/form-data" class="upload-form">
             <label class="upload-box" for="image">
               <span class="upload-icon">+</span>
-              <span class="upload-title">পাতার ছবি আপলোড করুন</span>
+              <span class="upload-title">ফসলের পাতার ছবি আপলোড করুন</span>
               <span class="upload-meta">JPG, PNG অথবা WEBP</span>
             </label>
             <input id="image" name="image" type="file" accept="image/*" required>
             <button type="submit">রোগ শনাক্ত করুন</button>
           </form>
+
+          {% if model_summary %}
+            <p class="model-scope">
+              বর্তমান মডেল: {{ model_summary.class_count }}টি ক্লাস
+              {% if model_summary.crops_text_bn %} · {{ model_summary.crops_text_bn }}{% endif %}
+            </p>
+          {% endif %}
 
           {% if error %}
             <p class="error">{{ error }}</p>
@@ -41,7 +48,7 @@
             <div class="result-block status-{{ result.status }}">
               <p class="result-label">
                 {% if result.status == "ok" %}
-                  সম্ভাব্য ফলাফল
+                  সম্ভাব্য রোগ ও পরামর্শ
                 {% else %}
                   সতর্কতা
                 {% endif %}
@@ -53,13 +60,13 @@
                 <p class="confidence">আত্মবিশ্বাস: {{ "%.2f"|format(result.confidence * 100) }}%</p>
               {% endif %}
               {% if result.status == "ok" %}
-                <p class="scope-note">এই ফলাফল শুধু টমেটো পাতার ছবির জন্য প্রযোজ্য। অন্য পাতা বা টমেটো ফলের ছবিতে এটি রোগ নির্ণয় হিসেবে ব্যবহার করবেন না।</p>
+                <p class="scope-note">এই ফলাফল বর্তমান মডেলের শেখা ফসল ও রোগের ক্লাসের সীমার মধ্যে দেখানো হয়েছে। গুরুতর আক্রমণে স্থানীয় কৃষি বিশেষজ্ঞের পরামর্শ নিন।</p>
               {% endif %}
             </div>
           {% else %}
             <div class="result-block muted">
               <p class="result-label">ফলাফল</p>
-              <h2>ছবি আপলোডের অপেক্ষায়</h2>
+              <h2>ফসলের পাতার ছবি আপলোড করুন</h2>
             </div>
           {% endif %}
         </div>

@@ -1,0 +1,21 @@
+{
+  "class_names": [
+    "Tomato___Healthy",
+    "Tomato___Leaf_Mold"
+  ],
+  "task": "multi_crop_leaf_disease",
+  "class_count": 2,
+  "supported_crops": [
+    "টমেটো"
+  ],
+  "supported_crop_count": 1,
+  "image_size": 224,
+  "base_model": "MobileNetV2",
+  "base_weights": "imagenet",
+  "base_trainable": false,
+  "preprocessing": "mobilenet_v2.preprocess_input",
+  "min_confidence": 0.7,
+  "min_confidence_margin": 0.1,
+  "validation_loss": 0.00021779505186714232,
+  "validation_accuracy": 1.0
+}
