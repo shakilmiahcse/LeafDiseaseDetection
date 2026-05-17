@@ -1,7 +1,40 @@
 .venv/
+venv/
+env/
 __pycache__/
 *.pyc
-models/
+*.pyo
+*.pyd
+.pytest_cache/
+pip-wheel-metadata/
+build/
+dist/
+*.egg-info/
+.DS_Store
+.vscode/
+.idea/
+*.iml
+
+# Model artifacts and large binaries
+models/*.keras
+models/*.h5
+models/*.hdf5
+models/*.zip
 outputs/
-_plantvillage_src/
+
+# Uploaded files and generated/static content
 static/uploads/
+logs/
+
+# Dataset folders (large)
+dataset/
+_plantvillage_full/
+_plantvillage_src/
+
+# Environment files
+.env
+.env.*
+
+# Misc
+*.log
+*.sqlite3
