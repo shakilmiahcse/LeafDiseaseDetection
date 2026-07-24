@@ -8,24 +8,22 @@ from werkzeug.utils import secure_filename
 from src.disease_advice import summarize_supported_classes
 from src.predict import load_metadata, predict_leaf, load_model_from_path
 from src.logger import setup_logger
+from src.config import get_config
 
 
-BASE_DIR = Path(__file__).resolve().parent
-METADATA_PATH = BASE_DIR / "models" / "class_names.json"
-UPLOAD_FOLDER = BASE_DIR / "static" / "uploads"
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
-
+config = get_config()
 logger = setup_logger(__name__)
 
 app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+app.config.from_object(config)
+app.config["UPLOAD_FOLDER"] = config.UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = config.MAX_CONTENT_LENGTH
 
-UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+config.ensure_directories()
 
 try:
-    metadata = load_metadata(METADATA_PATH)
-    logger.info(f"Metadata loaded successfully: {METADATA_PATH}")
+    metadata = load_metadata(config.get_metadata_path())
+    logger.info(f"Metadata loaded successfully: {config.get_metadata_path()}")
 except Exception as e:
     logger.error(f"Failed to load metadata: {e}")
     metadata = {}
@@ -39,32 +37,11 @@ except Exception as e:
 
 model = None
 
-
-def resolve_model_path():
-    configured_path = os.environ.get("LEAF_MODEL_PATH")
-    if configured_path:
-        path = Path(configured_path)
-        logger.info(f"Using environment model path: {path}")
-        return path if path.is_absolute() else BASE_DIR / path
-
-    for candidate in (
-        BASE_DIR / "models" / "leaf_disease_model.keras",
-        BASE_DIR / "models" / "leaf_model.h5",
-    ):
-        if candidate.exists():
-            logger.info(f"Found model at: {candidate}")
-            return candidate
-
-    default_path = BASE_DIR / "models" / "leaf_disease_model.keras"
-    logger.warning(f"Model not found. Using default path: {default_path}")
-    return default_path
-
-
-MODEL_PATH = resolve_model_path()
+MODEL_PATH = config.get_model_path()
 
 
 def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in config.ALLOWED_EXTENSIONS
 
 
 def get_model():
