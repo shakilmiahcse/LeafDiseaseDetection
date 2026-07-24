@@ -11,8 +11,12 @@ import tensorflow as tf
 
 try:
     from src.disease_advice import summarize_supported_classes
+    from src.logger import setup_logger
 except ModuleNotFoundError:
     from disease_advice import summarize_supported_classes
+    from logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -81,19 +85,25 @@ def create_data_generators(data_dir, image_size, batch_size, seed):
     valid_dir = Path(data_dir) / "valid"
 
     if not train_dir.exists() or not valid_dir.exists():
+        logger.error(f"Dataset directories not found: {train_dir} or {valid_dir}")
         raise FileNotFoundError("Expected dataset/train and dataset/valid folders.")
 
     class_names = sorted(path.name for path in train_dir.iterdir() if path.is_dir())
     if not class_names:
+        logger.error(f"No class folders found in {train_dir}")
         raise FileNotFoundError(f"No class folders found in {train_dir}")
 
     train_paths, train_labels = list_image_files(train_dir, class_names)
     valid_paths, valid_labels = list_image_files(valid_dir, class_names)
 
     if not train_paths:
+        logger.error(f"No training images found in {train_dir}")
         raise FileNotFoundError(f"No training images found in {train_dir}")
     if not valid_paths:
+        logger.error(f"No validation images found in {valid_dir}")
         raise FileNotFoundError(f"No validation images found in {valid_dir}")
+
+    logger.info(f"Data generators created: {len(class_names)} classes, {len(train_paths)} train, {len(valid_paths)} valid")
 
     train_dataset = build_image_dataset(
         train_paths,
@@ -183,36 +193,86 @@ def save_training_plot(history, output_dir):
 def main():
     args = parse_args()
     tf.keras.utils.set_random_seed(args.seed)
+    
+    logger.info(f"Training started with args: data_dir={args.data_dir}, epochs={args.epochs}, batch_size={args.batch_size}")
 
     model_path = Path(args.model_out)
     model_path.parent.mkdir(parents=True, exist_ok=True)
     output_dir = Path("outputs")
 
-    train_generator, valid_generator, class_names = create_data_generators(
-        args.data_dir,
-        args.img_size,
-        args.batch_size,
-        args.seed,
-    )
+    try:
+        train_generator, valid_generator, class_names = create_data_generators(
+            args.data_dir,
+            args.img_size,
+            args.batch_size,
+            args.seed,
+        )
 
-    print(f"Classes: {class_names}")
-    supported_summary = summarize_supported_classes({"class_names": class_names})
-    print(f"Supported crops: {supported_summary['crops_text_bn']}")
+        print(f"Classes: {class_names}")
+        supported_summary = summarize_supported_classes({"class_names": class_names})
+        print(f"Supported crops: {supported_summary['crops_text_bn']}")
+        logger.info(f"Dataset loaded: {len(class_names)} classes")
 
-    model = build_model(len(class_names), args.img_size, args.base_weights)
-    model.summary()
+        model = build_model(len(class_names), args.img_size, args.base_weights)
+        logger.info("Model built successfully")
+        model.summary()
 
-    callbacks = [
-        tf.keras.callbacks.ModelCheckpoint(
-            model_path,
-            monitor="val_accuracy",
-            save_best_only=True,
+        callbacks = [
+            tf.keras.callbacks.ModelCheckpoint(
+                model_path,
+                monitor="val_accuracy",
+                save_best_only=True,
+                verbose=1,
+            ),
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_loss",
+                patience=4,
+                restore_best_weights=True,
+                verbose=1,
+            ),
+        ]
+
+        print(f"\nTraining for {args.epochs} epochs...")
+        logger.info(f"Starting training for {args.epochs} epochs...")
+        history = model.fit(
+            train_generator,
+            validation_data=valid_generator,
+            epochs=args.epochs,
+            callbacks=callbacks,
             verbose=1,
-        ),
-        tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
-            patience=4,
-            restore_best_weights=True,
+        )
+        logger.info("Training completed successfully")
+
+        # Save training history plot
+        save_training_plot(history, output_dir)
+        logger.info(f"Training plot saved to {output_dir / 'training_history.png'}")
+        print(f"Training plot saved to {output_dir / 'training_history.png'}")
+
+        # Save metadata
+        metadata = {
+            "class_names": class_names,
+            "min_confidence": args.min_confidence,
+            "min_confidence_margin": args.min_confidence_margin,
+            "image_size": args.img_size,
+        }
+        metadata_path = model_path.parent / "class_names.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        logger.info(f"Metadata saved to {metadata_path}")
+        print(f"Metadata saved to {metadata_path}")
+
+        print(f"\nTraining completed!")
+        print(f"Model saved to: {model_path}")
+        print(f"Metadata saved to: {metadata_path}")
+        print(f"Classes ({len(class_names)}): {', '.join(class_names)}")
+        logger.info(f"All artifacts saved. Model: {model_path}, Metadata: {metadata_path}")
+        
+    except Exception as e:
+        logger.error(f"Training failed: {e}", exc_info=True)
+        raise
+
+
+if __name__ == "__main__":
+    main()
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
             monitor="val_loss",
