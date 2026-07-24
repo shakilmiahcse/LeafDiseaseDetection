@@ -9,6 +9,7 @@ from src.disease_advice import summarize_supported_classes
 from src.predict import load_metadata, predict_leaf, load_model_from_path
 from src.logger import setup_logger
 from src.config import get_config
+from src.api import api_bp
 
 
 config = get_config()
@@ -19,14 +20,19 @@ app.config.from_object(config)
 app.config["UPLOAD_FOLDER"] = config.UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = config.MAX_CONTENT_LENGTH
 
+# Register API blueprint
+app.register_blueprint(api_bp)
+
 config.ensure_directories()
 
 try:
     metadata = load_metadata(config.get_metadata_path())
+    app.config["_metadata"] = metadata
     logger.info(f"Metadata loaded successfully: {config.get_metadata_path()}")
 except Exception as e:
     logger.error(f"Failed to load metadata: {e}")
     metadata = {}
+    app.config["_metadata"] = {}
 
 try:
     model_summary = summarize_supported_classes(metadata)
@@ -38,6 +44,8 @@ except Exception as e:
 model = None
 
 MODEL_PATH = config.get_model_path()
+app.config["_model_path"] = MODEL_PATH
+app.config["_metadata_path"] = config.get_metadata_path()
 
 
 def allowed_file(filename):
