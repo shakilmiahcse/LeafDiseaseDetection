@@ -10,6 +10,8 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 import cv2
 import numpy as np
 
+from .logger import setup_logger
+
 try:
     from src.disease_advice import (
         NEGATIVE_CLASSES as NEGATIVE_CLASS_LABELS,
@@ -25,6 +27,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
+
+logger = setup_logger(__name__)
 
 
 DEFAULT_MIN_CONFIDENCE = 0.7
@@ -55,13 +59,16 @@ def parse_args():
 def load_metadata(path):
     metadata_path = Path(path)
     if not metadata_path.exists():
+        logger.error(f"Metadata file not found: {metadata_path}")
         raise FileNotFoundError(f"Missing metadata file: {metadata_path}")
+    logger.info(f"Loading metadata from {metadata_path}")
     return json.loads(metadata_path.read_text(encoding="utf-8"))
 
 
 def load_image(image_path, image_size):
     image = cv2.imread(str(image_path))
     if image is None:
+        logger.error(f"Could not read image: {image_path}")
         raise FileNotFoundError(f"Could not read image: {image_path}")
 
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -69,6 +76,7 @@ def load_image(image_path, image_size):
     image = image.astype(np.float32)
     import tensorflow as tf
     image = tf.keras.applications.mobilenet_v2.preprocess_input(image)
+    logger.debug(f"Image loaded and preprocessed: {image_path}")
     return np.expand_dims(image, axis=0)
 
 
@@ -148,15 +156,19 @@ def validate_input_image(image_path):
     stats = analyze_image_content(image_path)
 
     if stats["face_detected"] and stats["face_ratio"] > 0.03:
+        logger.warning(f"Face detected in image: {image_path}")
         return False, "not_leaf", stats
 
     if stats["red_ratio"] > 0.2 and stats["red_ratio"] > stats["green_ratio"] * 1.5:
+        logger.warning(f"High red ratio detected: {image_path}")
         return False, "not_leaf", stats
 
     if stats["green_ratio"] < MIN_GREEN_RATIO:
+        logger.warning(f"Low green ratio: {image_path}")
         return False, "not_leaf", stats
 
     if stats["vegetation_ratio"] < MIN_VEGETATION_RATIO:
+        logger.warning(f"Low vegetation ratio: {image_path}")
         return False, "not_leaf", stats
 
     simple_green_graphic = (
@@ -166,8 +178,10 @@ def validate_input_image(image_path):
         and stats["extent"] > 0.7
     )
     if simple_green_graphic:
+        logger.warning(f"Simple green graphic detected: {image_path}")
         return False, "not_leaf", stats
 
+    logger.debug(f"Image validation passed: {image_path}")
     return True, None, stats
 
 
